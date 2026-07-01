@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      channel_url:
+        description: "YouTube channel URL to process. Empty means tests only."
+        required: false
+        default: ""
+      max_videos:
+        description: "0 means all public uploads. Use a small number for trial runs."
+        required: false
+        default: "3"
+      sync_notion:
+        description: "true to sync to Notion when secrets are configured."
+        required: false
+        default: "true"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+      - name: Lint
+        run: ruff check .
+      - name: Test
+        run: pytest
+
+  channel-run:
+    if: github.event_name == 'workflow_dispatch' && inputs.channel_url != ''
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+      - name: Run YouTube channel pipeline
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-5.4-mini' }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+          NOTION_PARENT_PAGE_ID: ${{ secrets.NOTION_PARENT_PAGE_ID }}
+          NOTION_DATABASE_TITLE: ${{ vars.NOTION_DATABASE_TITLE || 'YouTube Channel Knowledge Base' }}
+          NOTION_INCLUDE_TRANSCRIPT: ${{ vars.NOTION_INCLUDE_TRANSCRIPT || 'true' }}
+          LANGUAGES: ${{ vars.LANGUAGES || 'ja,en' }}
+        run: |
+          EXTRA_ARGS=""
+          if [ "${{ inputs.sync_notion }}" != "true" ]; then
+            EXTRA_ARGS="--no-notion"
+          fi
+          yt-notion-digest run \
+            --channel-url "${{ inputs.channel_url }}" \
+            --max-videos "${{ inputs.max_videos }}" \
+            --output-dir data/runs/actions \
+            $EXTRA_ARGS
+      - name: Upload generated knowledge artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: youtube-channel-knowledge-outputs
+          path: data/runs/actions
+          if-no-files-found: error
