@@ -59,7 +59,7 @@ class TranscriptClient:
                 is_generated=getattr(fetched, "is_generated", None),
                 segment_count=len(raw_segments),
             )
-        except Exception as exc:  # noqa: BLE001 - keep the pipeline exhaustive across videos
+        except Exception as exc:  # noqa: BLE001
             if self.delay_seconds:
                 time.sleep(self.delay_seconds)
             return TranscriptResult(
@@ -73,8 +73,7 @@ class TranscriptClient:
 
 def _to_raw_segments(fetched: Any) -> list[dict[str, Any]]:
     if hasattr(fetched, "to_raw_data"):
-        raw = fetched.to_raw_data()
-        return [dict(item) for item in raw]
+        return [dict(item) for item in fetched.to_raw_data()]
 
     raw_segments: list[dict[str, Any]] = []
     for item in fetched:
