@@ -82,7 +82,7 @@ class YouTubeToNotionPipeline:
                 notion_database_id = self.notion_client.ensure_database(
                     self.config.notion_parent_page_id, self.config.notion_database_title
                 )
-            except Exception as exc:  # noqa: BLE001 - continue producing local outputs
+            except Exception as exc:  # noqa: BLE001
                 errors.append(f"Notion database setup failed: {type(exc).__name__}: {exc}")
         elif options.sync_notion:
             errors.append("Notion sync requested but NOTION_TOKEN is not configured.")
@@ -107,7 +107,7 @@ class YouTubeToNotionPipeline:
                         summary,
                         include_transcript=options.include_transcript_in_notion,
                     )
-            except Exception as exc:  # noqa: BLE001 - exhaustive processing across all videos
+            except Exception as exc:  # noqa: BLE001
                 message = f"Video {video.id} failed: {type(exc).__name__}: {exc}"
                 print(message)
                 errors.append(message)
