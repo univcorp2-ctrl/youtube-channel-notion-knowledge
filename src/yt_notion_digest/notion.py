@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any
 
@@ -101,7 +100,6 @@ class NotionClient:
     def upsert_markdown_page(
         self,
         video_id: str,
-        title: str,
         properties: dict[str, Any],
         markdown: str,
     ) -> str:
@@ -133,9 +131,8 @@ class NotionClient:
     def append_children(self, block_id: str, blocks: list[dict[str, Any]]) -> None:
         for start in range(0, len(blocks), MAX_BLOCKS_PER_REQUEST):
             batch = blocks[start : start + MAX_BLOCKS_PER_REQUEST]
-            if not batch:
-                continue
-            self._request("PATCH", f"/blocks/{block_id}/children", {"children": batch})
+            if batch:
+                self._request("PATCH", f"/blocks/{block_id}/children", {"children": batch})
 
     def sync_video(
         self,
@@ -157,9 +154,8 @@ class NotionClient:
             "Summary Model": rich_text_prop(summary.model),
             "Synced At": date_prop(datetime.now(timezone.utc).isoformat()),
         }
-
         markdown = video_markdown(channel, video, transcript, summary, include_transcript)
-        return self.upsert_markdown_page(video.id, video.title, properties, markdown)
+        return self.upsert_markdown_page(video.id, properties, markdown)
 
     def sync_channel_summary(self, channel: Channel, summary_markdown: str) -> str:
         video_id = f"CHANNEL_SUMMARY:{channel.id}"
@@ -174,7 +170,7 @@ class NotionClient:
             "Summary Model": rich_text_prop("channel-synthesis"),
             "Synced At": date_prop(datetime.now(timezone.utc).isoformat()),
         }
-        return self.upsert_markdown_page(video_id, properties["Name"]["title"][0]["text"]["content"], properties, summary_markdown)
+        return self.upsert_markdown_page(video_id, properties, summary_markdown)
 
 
 def title_prop(value: str) -> dict[str, Any]:
