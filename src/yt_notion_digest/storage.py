@@ -83,15 +83,7 @@ class RunStore:
 
         json_path = self.output_dir / "manifest.json"
         json_path.write_text(
-            json.dumps(
-                {
-                    "channel": asdict(channel),
-                    "videos": rows,
-                    "errors": errors,
-                },
-                ensure_ascii=False,
-                indent=2,
-            ),
+            json.dumps({"channel": asdict(channel), "videos": rows, "errors": errors}, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
 
