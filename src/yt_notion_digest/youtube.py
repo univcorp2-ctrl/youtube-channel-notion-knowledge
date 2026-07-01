@@ -16,16 +16,6 @@ class YouTubeApiError(RuntimeError):
 
 
 def parse_channel_identity(channel_url: str) -> tuple[str, str]:
-    """Return (kind, value) for common YouTube channel URL formats.
-
-    Supported examples:
-    - https://www.youtube.com/@handle
-    - https://www.youtube.com/channel/UCxxxx
-    - https://www.youtube.com/user/legacyName
-    - https://www.youtube.com/c/customName
-    - https://www.youtube.com/watch?v=... where the caller later uses search fallback
-    """
-
     parsed = urlparse(channel_url)
     path = parsed.path.strip("/")
     if not path and parsed.netloc in {"youtu.be", "www.youtu.be"}:
@@ -61,9 +51,7 @@ class YouTubeDataClient:
     def _get(self, path: str, params: dict[str, object]) -> dict[str, object]:
         request_params = dict(params)
         request_params["key"] = self.api_key
-        response = self.session.get(
-            f"{YOUTUBE_API_BASE}{path}", params=request_params, timeout=30
-        )
+        response = self.session.get(f"{YOUTUBE_API_BASE}{path}", params=request_params, timeout=30)
         if response.status_code >= 400:
             raise YouTubeApiError(
                 f"YouTube API request failed: HTTP {response.status_code}: {response.text[:500]}"
@@ -78,16 +66,14 @@ class YouTubeDataClient:
         part = "snippet,contentDetails,statistics"
 
         if kind == "id":
-            params: dict[str, object] = {"part": part, "id": value}
-            data = self._get("/channels", params)
+            data = self._get("/channels", {"part": part, "id": value})
         elif kind == "handle":
             data = self._get("/channels", {"part": part, "forHandle": value})
         elif kind == "username":
             data = self._get("/channels", {"part": part, "forUsername": value})
         else:
             search = self._get(
-                "/search",
-                {"part": "snippet", "q": value, "type": "channel", "maxResults": 1},
+                "/search", {"part": "snippet", "q": value, "type": "channel", "maxResults": 1}
             )
             items = search.get("items", [])
             if not items:
@@ -107,20 +93,14 @@ class YouTubeDataClient:
         if not uploads:
             raise YouTubeApiError("Channel response did not include an uploads playlist ID.")
 
-        def optional_int(raw: object) -> int | None:
-            try:
-                return int(raw) if raw is not None else None
-            except (TypeError, ValueError):
-                return None
-
         return Channel(
             id=item["id"],
             title=snippet.get("title", "Untitled channel"),
             url=f"https://www.youtube.com/channel/{item['id']}",
             uploads_playlist_id=uploads,
             description=snippet.get("description", ""),
-            subscriber_count=optional_int(statistics.get("subscriberCount")),
-            video_count=optional_int(statistics.get("videoCount")),
+            subscriber_count=_optional_int(statistics.get("subscriberCount")),
+            video_count=_optional_int(statistics.get("videoCount")),
         )
 
     def list_uploads(self, channel: Channel, max_videos: int = 0) -> list[Video]:
@@ -149,8 +129,7 @@ class YouTubeDataClient:
                         id=video_id,
                         title=snippet.get("title", "Untitled video"),
                         url=f"https://www.youtube.com/watch?v={video_id}",
-                        published_at=snippet.get("publishedAt")
-                        or content_details.get("videoPublishedAt"),
+                        published_at=snippet.get("publishedAt") or content_details.get("videoPublishedAt"),
                         description=snippet.get("description", ""),
                         channel_id=channel.id,
                         channel_title=channel.title,
