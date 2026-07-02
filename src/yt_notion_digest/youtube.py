@@ -15,6 +15,16 @@ class YouTubeApiError(RuntimeError):
     """Raised when the YouTube Data API returns an unusable response."""
 
 
+def parse_playlist_id(source_url: str) -> str | None:
+    """Extract a YouTube playlist ID from a playlist or watch URL."""
+    parsed = urlparse(source_url)
+    query = parse_qs(parsed.query)
+    values = query.get("list")
+    if values and values[0].strip():
+        return values[0].strip()
+    return None
+
+
 def parse_channel_identity(channel_url: str) -> tuple[str, str]:
     parsed = urlparse(channel_url)
     path = parsed.path.strip("/")
@@ -44,7 +54,7 @@ def parse_channel_identity(channel_url: str) -> tuple[str, str]:
 class YouTubeDataClient:
     def __init__(self, api_key: str, session: requests.Session | None = None) -> None:
         if not api_key:
-            raise ValueError("YOUTUBE_API_KEY is required to enumerate every public upload.")
+            raise ValueError("YOUTUBE_API_KEY is required to enumerate every public upload or playlist item.")
         self.api_key = api_key
         self.session = session or requests.Session()
 
@@ -62,6 +72,15 @@ class YouTubeDataClient:
         return data
 
     def resolve_channel(self, channel_url: str) -> Channel:
+        """Resolve either a channel URL or playlist URL to a collection container.
+
+        For a playlist URL, uploads_playlist_id stores the requested playlist ID so the
+        existing exhaustive playlist pagination path can be reused.
+        """
+        playlist_id = parse_playlist_id(channel_url)
+        if playlist_id:
+            return self.resolve_playlist(channel_url, playlist_id)
+
         kind, value = parse_channel_identity(channel_url)
         part = "snippet,contentDetails,statistics"
 
@@ -103,6 +122,29 @@ class YouTubeDataClient:
             video_count=_optional_int(statistics.get("videoCount")),
         )
 
+    def resolve_playlist(self, source_url: str, playlist_id: str) -> Channel:
+        data = self._get(
+            "/playlists",
+            {"part": "snippet,contentDetails", "id": playlist_id, "maxResults": 1},
+        )
+        items = data.get("items", [])
+        if not items:
+            raise YouTubeApiError(f"No public playlist matched ID: {playlist_id}")
+
+        item = items[0]
+        snippet = item.get("snippet", {})
+        details = item.get("contentDetails", {})
+        owner_channel_id = snippet.get("channelId") or f"PLAYLIST:{playlist_id}"
+        playlist_title = snippet.get("title", "Untitled playlist")
+        return Channel(
+            id=owner_channel_id,
+            title=f"Playlist: {playlist_title}",
+            url=source_url,
+            uploads_playlist_id=playlist_id,
+            description=snippet.get("description", ""),
+            video_count=_optional_int(details.get("itemCount")),
+        )
+
     def list_uploads(self, channel: Channel, max_videos: int = 0) -> list[Video]:
         videos: list[Video] = []
         page_token: str | None = None
@@ -129,10 +171,10 @@ class YouTubeDataClient:
                         id=video_id,
                         title=snippet.get("title", "Untitled video"),
                         url=f"https://www.youtube.com/watch?v={video_id}",
-                        published_at=snippet.get("publishedAt") or content_details.get("videoPublishedAt"),
+                        published_at=content_details.get("videoPublishedAt") or snippet.get("publishedAt"),
                         description=snippet.get("description", ""),
-                        channel_id=channel.id,
-                        channel_title=channel.title,
+                        channel_id=snippet.get("videoOwnerChannelId") or channel.id,
+                        channel_title=snippet.get("videoOwnerChannelTitle") or channel.title,
                         position=snippet.get("position"),
                     )
                 )
@@ -173,6 +215,8 @@ class YouTubeDataClient:
                     title=snippet.get("title", original.title),
                     description=snippet.get("description", original.description),
                     published_at=snippet.get("publishedAt", original.published_at),
+                    channel_id=snippet.get("channelId", original.channel_id),
+                    channel_title=snippet.get("channelTitle", original.channel_title),
                     duration=details.get("duration"),
                     view_count=_optional_int(stats.get("viewCount")),
                     like_count=_optional_int(stats.get("likeCount")),
