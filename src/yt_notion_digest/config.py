@@ -50,7 +50,7 @@ class AppConfig:
     output_dir: Path
 
     @classmethod
-    def from_env(cls, env_file: str | None = None) -> "AppConfig":
+    def from_env(cls, env_file: str | None = None) -> AppConfig:
         if env_file:
             load_dotenv(env_file)
         else:
