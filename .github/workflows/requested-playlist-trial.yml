@@ -1,11 +1,10 @@
 name: Requested Playlist Notion Trial
 
 on:
-  push:
-    paths:
-      - ".github/workflows/requested-playlist-trial.yml"
-      - "src/yt_notion_digest/youtube.py"
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: requested-playlist-notion-trial
@@ -17,10 +16,10 @@ jobs:
     timeout-minutes: 360
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: "pip"
@@ -69,9 +68,28 @@ jobs:
             --max-videos 0 \
             --output-dir data/runs/requested-playlist-trial
 
+      - name: Verify pipeline result
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("data/runs/requested-playlist-trial/result.json")
+          if not path.exists():
+              raise SystemExit("result.json was not generated")
+          result = json.loads(path.read_text(encoding="utf-8"))
+          print(json.dumps(result, ensure_ascii=False, indent=2))
+          if not result.get("notion_database_id"):
+              raise SystemExit("Notion database ID was not resolved")
+          if result.get("errors"):
+              raise SystemExit(f"Pipeline reported errors: {result['errors']}")
+          if result.get("videos_processed") != result.get("videos_found"):
+              raise SystemExit("Not every playlist video was processed")
+          PY
+
       - name: Upload generated outputs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: requested-playlist-notion-trial-outputs
           path: data/runs/requested-playlist-trial
