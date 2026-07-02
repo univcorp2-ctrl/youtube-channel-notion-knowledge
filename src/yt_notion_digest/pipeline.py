@@ -10,7 +10,7 @@ from yt_notion_digest.notion import NotionClient
 from yt_notion_digest.storage import RunStore
 from yt_notion_digest.summarizer import Summarizer
 from yt_notion_digest.transcripts import TranscriptClient
-from yt_notion_digest.youtube import YouTubeDataClient
+from yt_notion_digest.youtube import YouTubeDataClient, YtDlpClient, get_youtube_client  # noqa: F401
 
 
 class YouTubeClientProtocol(Protocol):
@@ -55,7 +55,7 @@ class YouTubeToNotionPipeline:
         notion_client: NotionClient | None = None,
     ) -> None:
         self.config = config
-        self.youtube_client = youtube_client or YouTubeDataClient(config.youtube_api_key or "")
+        self.youtube_client = youtube_client or get_youtube_client(config.youtube_api_key)
         self.transcript_client = transcript_client or TranscriptClient(
             languages=config.languages, translate_to=config.translate_to
         )

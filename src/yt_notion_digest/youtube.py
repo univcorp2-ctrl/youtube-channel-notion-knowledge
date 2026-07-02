@@ -230,3 +230,152 @@ def _optional_int(raw: object) -> int | None:
         return int(raw) if raw is not None else None
     except (TypeError, ValueError):
         return None
+
+
+# ---------------------------------------------------------------------------
+# yt-dlp backend (no API key required)
+# ---------------------------------------------------------------------------
+
+def _ytdlp_date_to_iso(date_str: str | None) -> str | None:
+    """Convert YYYYMMDD to ISO 8601 datetime string."""
+    if not date_str or len(date_str) != 8:
+        return None
+    return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}T00:00:00Z"
+
+
+def _seconds_to_iso8601_duration(seconds: int | None) -> str | None:
+    """Convert integer seconds to ISO 8601 duration string (e.g. PT1H30M5S)."""
+    if seconds is None:
+        return None
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    s = seconds % 60
+    result = "PT"
+    if h:
+        result += f"{h}H"
+    if m:
+        result += f"{m}M"
+    result += f"{s}S"
+    return result
+
+
+class YtDlpClient:
+    """YouTube client using yt-dlp instead of the YouTube Data API.
+
+    No API key required. Works for any public channel, playlist, or video URL.
+    Provides the same interface as YouTubeDataClient.
+    """
+
+    def __init__(self, quiet: bool = True) -> None:
+        self.quiet = quiet
+        self._info_cache: dict[str, dict] = {}
+
+    def _extract_info(self, url: str, flat: bool = True, max_videos: int = 0) -> dict:
+        import yt_dlp  # optional dependency
+
+        ydl_opts: dict = {
+            "quiet": self.quiet,
+            "no_warnings": self.quiet,
+            "extract_flat": "in_playlist" if flat else False,
+            "ignoreerrors": True,
+        }
+        if max_videos:
+            ydl_opts["playlistend"] = max_videos
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            return ydl.extract_info(url, download=False) or {}
+
+    @staticmethod
+    def _videos_url(channel_url: str) -> str:
+        """Return the /videos tab URL for a channel, preserving playlist URLs."""
+        from urllib.parse import urlparse, parse_qs
+        parsed = urlparse(channel_url)
+        if parse_qs(parsed.query).get("list"):
+            return channel_url  # playlist URL — don't modify
+        url = channel_url.rstrip("/")
+        if not url.endswith("/videos"):
+            url += "/videos"
+        return url
+
+    def resolve_channel(self, channel_url: str) -> Channel:
+        videos_url = self._videos_url(channel_url)
+        info = self._extract_info(videos_url, flat=True, max_videos=3)
+        self._info_cache[channel_url] = info
+
+        channel_id = (
+            info.get("channel_id")
+            or info.get("uploader_id")
+            or info.get("id")
+            or "unknown"
+        )
+        channel_title = (
+            info.get("channel")
+            or info.get("uploader")
+            or info.get("title")
+            or "Unknown Channel"
+        )
+        # Canonical channel URL (without /videos suffix)
+        canonical_url = info.get("webpage_url") or channel_url
+        if canonical_url.endswith("/videos"):
+            canonical_url = canonical_url[: -len("/videos")]
+
+        return Channel(
+            id=channel_id,
+            title=channel_title,
+            url=canonical_url,
+            uploads_playlist_id=channel_id,  # placeholder; not used by YtDlpClient.list_uploads
+            description=info.get("description") or "",
+            subscriber_count=_optional_int(info.get("channel_follower_count")),
+            video_count=_optional_int(info.get("playlist_count")),
+        )
+
+    def list_uploads(self, channel: Channel, max_videos: int = 0) -> list[Video]:
+        # Always use the /videos tab to get individual video entries
+        videos_url = self._videos_url(channel.url)
+        cache_key = channel.url
+        if cache_key in self._info_cache and max_videos == 0:
+            info = self._info_cache[cache_key]
+        else:
+            info = self._extract_info(videos_url, flat=True, max_videos=max_videos)
+
+        entries = info.get("entries") or []
+        videos: list[Video] = []
+
+        for i, entry in enumerate(entries):
+            if not entry:
+                continue
+            video_id = entry.get("id") or ""
+            if not video_id:
+                continue
+
+            raw_duration = entry.get("duration")
+            duration_iso = _seconds_to_iso8601_duration(
+                int(raw_duration) if raw_duration is not None else None
+            )
+            videos.append(
+                Video(
+                    id=video_id,
+                    title=entry.get("title") or "Untitled video",
+                    url=f"https://www.youtube.com/watch?v={video_id}",
+                    published_at=_ytdlp_date_to_iso(entry.get("upload_date")),
+                    description=entry.get("description") or "",
+                    channel_id=entry.get("channel_id") or channel.id,
+                    channel_title=entry.get("channel") or channel.title,
+                    duration=duration_iso,
+                    view_count=_optional_int(entry.get("view_count")),
+                    like_count=_optional_int(entry.get("like_count")),
+                    position=i,
+                )
+            )
+            if max_videos and len(videos) >= max_videos:
+                break
+
+        return videos
+
+
+def get_youtube_client(api_key: str | None) -> "YouTubeDataClient | YtDlpClient":
+    """Factory: returns YouTubeDataClient if api_key is set, otherwise YtDlpClient."""
+    if api_key and api_key.strip():
+        return YouTubeDataClient(api_key.strip())
+    return YtDlpClient()
+
