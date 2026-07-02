@@ -1,0 +1,79 @@
+name: Requested Playlist Notion Trial
+
+on:
+  push:
+    paths:
+      - ".github/workflows/requested-playlist-trial.yml"
+      - "src/yt_notion_digest/youtube.py"
+  workflow_dispatch:
+
+concurrency:
+  group: requested-playlist-notion-trial
+  cancel-in-progress: false
+
+jobs:
+  run-playlist:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Validate required secrets
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+          NOTION_PARENT_PAGE_ID: ${{ secrets.NOTION_PARENT_PAGE_ID }}
+        run: |
+          missing=0
+          for name in YOUTUBE_API_KEY OPENAI_API_KEY NOTION_TOKEN; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is not configured in repository Actions secrets."
+              missing=1
+            fi
+          done
+          if [ -z "$NOTION_DATABASE_ID" ] && [ -z "$NOTION_PARENT_PAGE_ID" ]; then
+            echo "::error::Set either NOTION_DATABASE_ID or NOTION_PARENT_PAGE_ID."
+            missing=1
+          fi
+          exit "$missing"
+
+      - name: Process requested playlist and save to Notion
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-5.4-mini' }}
+          OPENAI_MAX_OUTPUT_TOKENS: ${{ vars.OPENAI_MAX_OUTPUT_TOKENS || '6000' }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+          NOTION_PARENT_PAGE_ID: ${{ secrets.NOTION_PARENT_PAGE_ID }}
+          NOTION_DATABASE_TITLE: ${{ vars.NOTION_DATABASE_TITLE || 'YouTube Playlist Knowledge Base' }}
+          NOTION_INCLUDE_TRANSCRIPT: ${{ vars.NOTION_INCLUDE_TRANSCRIPT || 'true' }}
+          LANGUAGES: ${{ vars.LANGUAGES || 'ja,en' }}
+        run: |
+          yt-notion-digest run \
+            --channel-url "https://youtube.com/playlist?list=PL0pHg9WQBbWZqnTu9vqMUdwsxRaZIB0Ja&si=robybr6RzkwhvWuk" \
+            --max-videos 0 \
+            --output-dir data/runs/requested-playlist-trial
+
+      - name: Upload generated outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: requested-playlist-notion-trial-outputs
+          path: data/runs/requested-playlist-trial
+          if-no-files-found: warn
+          retention-days: 30
