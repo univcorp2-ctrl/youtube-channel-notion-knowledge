@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -57,7 +58,9 @@ class YouTubeToNotionPipeline:
         self.config = config
         self.youtube_client = youtube_client or get_youtube_client(config.youtube_api_key)
         self.transcript_client = transcript_client or TranscriptClient(
-            languages=config.languages, translate_to=config.translate_to
+            languages=config.languages,
+            translate_to=config.translate_to,
+            delay_seconds=float(os.environ.get("TRANSCRIPT_DELAY_SECONDS", "2.0")),
         )
         self.summarizer = summarizer or Summarizer(
             api_key=config.openai_api_key,
