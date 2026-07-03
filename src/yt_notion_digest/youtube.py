@@ -299,8 +299,7 @@ class YtDlpClient:
 
     def resolve_channel(self, channel_url: str) -> Channel:
         videos_url = self._videos_url(channel_url)
-        info = self._extract_info(videos_url, flat=True, max_videos=3)
-        self._info_cache[channel_url] = info
+        info = self._extract_info(videos_url, flat=True, max_videos=1)
 
         channel_id = (
             info.get("channel_id")
